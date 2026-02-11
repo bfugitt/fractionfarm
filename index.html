@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Fraction Farm</title>
+    
+    <!-- React and ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Fonts: Quicksand for that clean, organic Reggio feel -->
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Quicksand', sans-serif;
+            background-color: #Fdfbf7; /* Warm off-white (Cream) */
+            color: #4a4a4a;
+        }
+        
+        /* Custom Reggio-inspired Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #A3B18A; 
+            border-radius: 4px;
+        }
+
+        /* Animation classes */
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        input:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(163, 177, 138, 0.5);
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        reggio: {
+                            cream: '#Fdfbf7',
+                            stone: '#Dddbd1',
+                            sage: '#A3B18A',
+                            deepGreen: '#3A5A40',
+                            terracotta: '#D4A373',
+                            clay: '#BC6C25',
+                            charcoal: '#333333'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+
+        /*************************************************************************
+         * TEACHER CONFIGURATION SECTION
+         * Edit the values below to adjust the difficulty and game mechanics.
+         *************************************************************************/
+        const TEACHER_CONFIG = {
+            // How many correct answers to level up?
+            questionsToLevelUp: 5, 
+            
+            // Max number of hints allowed per problem before showing the answer
+            maxHints: 3,
+
+            // Unlock all levels immediately for testing?
+            teacherMode: true,
+
+            // Define the logic for each level
+            levels: [
+                { id: 1, name: "Seedling", desc: "Like Denominators (Simple Add/Sub)", maxWhole: 0, maxDenom: 10, mixed: false, unlike: false, regroup: false },
+                { id: 2, name: "Sprout", desc: "Unlike Denominators", maxWhole: 0, maxDenom: 6, mixed: false, unlike: true, regroup: false },
+                { id: 3, name: "Sapling", desc: "Mixed Numbers (No Regrouping)", maxWhole: 5, maxDenom: 8, mixed: true, unlike: true, regroup: false },
+                { id: 4, name: "Tree", desc: "Mixed Numbers with Regrouping", maxWhole: 5, maxDenom: 10, mixed: true, unlike: true, regroup: true }
+            ]
+        };
+
+        /*************************************************************************
+         * MATH HELPER FUNCTIONS
+         *************************************************************************/
+        const gcd = (a, b) => b === 0 ? a : gcd(b, a % b);
+        const lcm = (a, b) => (a * b) / gcd(a, b);
+
+        const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+        // Simplify a fraction {n, d}
+        const simplify = (n, d) => {
+            const common = gcd(n, d);
+            return { n: n / common, d: d / common };
+        };
+
+        // Generates a problem based on level config
+        const generateProblem = (levelId) => {
+            const config = TEACHER_CONFIG.levels.find(l => l.id === levelId) || TEACHER_CONFIG.levels[0];
+            let n1, d1, w1, n2, d2, w2, op;
+            
+            // Randomly choose Addition or Subtraction (unless level implies specific)
+            op = Math.random() > 0.5 ? '+' : '-';
+
+            // Generate denominators
+            if (config.unlike) {
+                d1 = getRandomInt(2, config.maxDenom);
+                // Ensure d2 is different but manageable, keep numbers small for 4th grade
+                do { d2 = getRandomInt(2, config.maxDenom); } while (d1 === d2 || lcm(d1, d2) > 24); 
+            } else {
+                d1 = getRandomInt(2, config.maxDenom);
+                d2 = d1;
+            }
+
+            // Generate numerators
+            n1 = getRandomInt(1, d1 - 1);
+            n2 = getRandomInt(1, d2 - 1);
+
+            // Generate whole numbers
+            w1 = config.mixed ? getRandomInt(1, config.maxWhole) : 0;
+            w2 = config.mixed ? getRandomInt(1, Math.max(1, w1 - 1)) : 0; // w2 usually smaller than w1 to avoid negative results initially
+
+            // Logic adjustments for Regrouping scenarios
+            if (op === '-') {
+                // Ensure result isn't negative overall
+                const val1 = w1 + (n1/d1);
+                const val2 = w2 + (n2/d2);
+                if (val2 >= val1) {
+                    // Swap them
+                    [w1, w2, n1, n2, d1, d2] = [w2, w1, n2, n1, d2, d1];
+                }
+
+                // If we specifically want regrouping (borrowing)
+                if (config.regroup) {
+                    // Force the first fraction part to be smaller than second fraction part
+                    // normalize to common denom to check
+                    const common = lcm(d1, d2);
+                    const eqN1 = n1 * (common/d1);
+                    const eqN2 = n2 * (common/d2);
+                    
+                    if (eqN1 >= eqN2) {
+                        // Make n1 smaller so we HAVE to borrow
+                        // Just swap the fractional parts, keep wholes same (since we ensured w1 > w2 or similar)
+                        // If w1 === w2, swapping creates a negative, so ensure w1 > w2
+                        if (w1 === w2) w1++;
+                        // Set n1 small, n2 big
+                        n1 = 1; 
+                        n2 = d2 - 1; 
+                    }
+                } else {
+                    // Ensure NO regrouping required
+                     const common = lcm(d1, d2);
+                    const eqN1 = n1 * (common/d1);
+                    const eqN2 = n2 * (common/d2);
+                    if (eqN1 < eqN2) {
+                        // Swap fractional parts to avoid borrowing
+                         [n1, n2, d1, d2] = [n2, n1, d2, d1];
+                    }
+                }
+            }
+
+            return {
+                w1, n1, d1,
+                w2, n2, d2,
+                op
+            };
+        };
+
+        /*************************************************************************
+         * COMPONENTS
+         *************************************************************************/
+
+        const { useState, useEffect, useRef } = React;
+        
+        // Fix: Safely access Lucide icons from the global object
+        const lucideIcons = window.lucide && window.lucide.icons ? window.lucide.icons : {};
+        const { Sprout, Leaf, TreeDeciduous, Info, Settings, RotateCcw, Award, CheckCircle, HelpCircle, Lock, Unlock } = lucideIcons;
+
+        // Custom Icon wrapper to render Lucide's data array as SVG
+        const Icon = ({ icon, size = 24, className = "" }) => {
+            if (!icon || !Array.isArray(icon)) return null;
+
+            return (
+                <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    width={size} 
+                    height={size} 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    className={className}
+                >
+                    {icon.map(([tag, attrs], index) => (
+                        React.createElement(tag, { ...attrs, key: index })
+                    ))}
+                </svg>
+            );
+        };
+
+        // UI: Fraction Display Component
+        const Fraction = ({ w, n, d, size = "md", color = "text-reggio-charcoal" }) => {
+            const sizeClass = size === "lg" ? "text-4xl" : size === "xl" ? "text-6xl" : "text-2xl";
+            const wholeClass = size === "lg" ? "text-5xl mr-2" : size === "xl" ? "text-7xl mr-3" : "text-2xl mr-1";
+            
+            return (
+                <div className={`flex items-center font-bold ${color} ${sizeClass}`}>
+                    {w > 0 && <span className={wholeClass}>{w}</span>}
+                    {n !== null && (
+                        <div className="flex flex-col items-center leading-none">
+                            <span className="border-b-2 border-current px-1 pb-1 mb-1">{n}</span>
+                            <span>{d}</span>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Modal Component
+        const Modal = ({ title, onClose, children }) => (
+            <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 relative border-l-8 border-reggio-sage">
+                    <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                        <Icon icon={RotateCcw} className="rotate-45" />
+                    </button>
+                    <h2 className="text-2xl font-bold text-reggio-deepGreen mb-4 font-serif">{title}</h2>
+                    <div className="text-gray-600 overflow-y-auto max-h-[70vh]">
+                        {children}
+                    </div>
+                </div>
+            </div>
+        );
+
+        function App() {
+            // State: Game Data
+            const [userProgress, setUserProgress] = useState({
+                level: 1,
+                score: 0,
+                plants: [], // Array of unlocked badges/plants
+                history: [] // Last few scores
+            });
+
+            // State: App Flow
+            const [view, setView] = useState('menu'); // menu, game, about
+            const [problem, setProblem] = useState(null);
+            const [step, setStep] = useState(0); // 0: LCD, 1: Rename, 2: Regroup, 3: Solve, 4: Simplify
+            const [feedback, setFeedback] = useState({ msg: "", type: "" }); // neutral, success, error
+            const [isTeacherMode, setIsTeacherMode] = useState(TEACHER_CONFIG.teacherMode);
+
+            // Input States for Guided Steps
+            const [inputs, setInputs] = useState({ lcd: '', n1: '', n2: '', rw1: '', rn1: '', rw2: '', rn2: '', resW: '', resN: '', resD: '', simpW: '', simpN: '', simpD: '' });
+
+            // Load from LocalStorage on mount
+            useEffect(() => {
+                const saved = localStorage.getItem('fractionGardenData');
+                if (saved) {
+                    setUserProgress(JSON.parse(saved));
+                }
+            }, []);
+
+            // Save to LocalStorage on change
+            useEffect(() => {
+                localStorage.setItem('fractionGardenData', JSON.stringify(userProgress));
+            }, [userProgress]);
+
+            const resetProgress = () => {
+                if(confirm("Are you sure you want to clear all progress and restart?")) {
+                    const freshStart = { level: 1, score: 0, plants: [], history: [] };
+                    setUserProgress(freshStart);
+                    setView('menu');
+                    localStorage.setItem('fractionGardenData', JSON.stringify(freshStart));
+                }
+            };
+
+            const toggleTeacherMode = () => {
+                setIsTeacherMode(!isTeacherMode);
+            };
+
+            const startGame = (levelId) => {
+                const newProblem = generateProblem(levelId);
+                setProblem(newProblem);
+                setInputs({ lcd: '', n1: '', n2: '', rw1: '', rn1: '', rw2: '', rn2: '', resW: '', resN: '', resD: '', simpW: '', simpN: '', simpD: '' });
+                setFeedback({ msg: "Let's grow!", type: "neutral" });
+                
+                // Determine starting step
+                const config = TEACHER_CONFIG.levels.find(l => l.id === levelId);
+                if (config.unlike) {
+                    setStep(0); // Find LCD
+                } else if (config.regroup) {
+                    // Skip LCD step if denoms are same, but go to Regroup check
+                    // Prefill inputs that would have been calculated
+                    setInputs(prev => ({...prev, lcd: newProblem.d1, n1: newProblem.n1, n2: newProblem.n2}));
+                    setStep(2); 
+                } else {
+                    // Simple Add/Sub
+                    setInputs(prev => ({...prev, lcd: newProblem.d1, n1: newProblem.n1, n2: newProblem.n2}));
+                    setStep(3);
+                }
+                
+                setView('game');
+            };
+
+            const handleNextLevel = () => {
+                const nextLvl = Math.min(4, userProgress.level + 1);
+                const newData = { ...userProgress, level: nextLvl, score: userProgress.score + 10, plants: [...userProgress.plants, `Plant ${Date.now()}`] };
+                setUserProgress(newData);
+                setFeedback({ msg: "Level Up! You planted a new seed!", type: "success" });
+                setTimeout(() => setView('menu'), 2000);
+            };
+
+            /* ---------------- GAME LOGIC & STEPS ---------------- */
+
+            // STEP 0: CHECK LCD
+            const checkLCD = () => {
+                const targetLCD = lcm(problem.d1, problem.d2);
+                if (parseInt(inputs.lcd) === targetLCD) {
+                    setFeedback({ msg: "Great! Now convert the fractions.", type: "success" });
+                    setStep(1);
+                } else {
+                    setFeedback({ msg: "Not quite. Find the Least Common Multiple.", type: "error" });
+                }
+            };
+
+            // STEP 1: CHECK RENAMING
+            const checkRename = () => {
+                const targetLCD = parseInt(inputs.lcd);
+                const targetN1 = problem.n1 * (targetLCD / problem.d1);
+                const targetN2 = problem.n2 * (targetLCD / problem.d2);
+
+                if (parseInt(inputs.n1) === targetN1 && parseInt(inputs.n2) === targetN2) {
+                     setFeedback({ msg: "Perfect conversion.", type: "success" });
+                     // Check if Regrouping is needed
+                     const config = TEACHER_CONFIG.levels.find(l => l.id === 4); // simplistic check for current level context, ideally pass levelId
+                     // Actual Logic Check:
+                     if (problem.op === '-' && parseInt(inputs.n1) < parseInt(inputs.n2)) {
+                         setFeedback({ msg: "Wait! You can't subtract yet. You need to borrow.", type: "neutral" });
+                         setStep(2); // Go to Regroup
+                     } else {
+                         setStep(3); // Go to Solve
+                     }
+                } else {
+                    setFeedback({ msg: "Check your multiplication.", type: "error" });
+                }
+            };
+
+            // STEP 2: CHECK REGROUPING (BORROWING)
+            const checkRegroup = () => {
+                // Logic: Whole number decreases by 1, Numerator increases by Denominator
+                const currentLCD = parseInt(inputs.lcd || problem.d1);
+                // The fraction being borrowed from is the first one (w1, n1)
+                // However, in step 1 inputs.n1 holds the converted numerator.
+                
+                // Expected new Whole
+                const expectedW1 = problem.w1 - 1;
+                // Expected new Num
+                const convertedN1 = (step === 0) ? problem.n1 : parseInt(inputs.n1); // If we skipped step 0/1
+                const expectedN1 = convertedN1 + currentLCD;
+
+                if (parseInt(inputs.rw1) === expectedW1 && parseInt(inputs.rn1) === expectedN1) {
+                    setFeedback({ msg: "Nice borrowing! Now you can subtract.", type: "success" });
+                    setStep(3);
+                } else {
+                    setFeedback({ msg: `Remember: 1 whole = ${currentLCD}/${currentLCD}. Add that to the numerator.`, type: "error" });
+                }
+            };
+
+            // STEP 3: CHECK SOLVE & CONDITIONAL SIMPLIFY
+            const checkSolve = () => {
+                // Determine operands based on previous steps
+                let effectiveW1 = problem.w1;
+                let effectiveN1 = (step > 1 && inputs.rn1) ? parseInt(inputs.rn1) : (inputs.n1 ? parseInt(inputs.n1) : problem.n1);
+                let effectiveW2 = problem.w2;
+                let effectiveN2 = inputs.n2 ? parseInt(inputs.n2) : problem.n2;
+                
+                // If we regrouped, update W1
+                if (step > 1 && inputs.rw1 !== '') effectiveW1 = parseInt(inputs.rw1);
+
+                let resW, resN;
+                const den = parseInt(inputs.lcd || problem.d1);
+
+                if (problem.op === '+') {
+                    resW = effectiveW1 + effectiveW2;
+                    resN = effectiveN1 + effectiveN2;
+                } else {
+                    resW = effectiveW1 - effectiveW2;
+                    resN = effectiveN1 - effectiveN2;
+                }
+
+                // Verify user math
+                const userW = parseInt(inputs.resW || 0);
+                const userN = parseInt(inputs.resN);
+                const userD = parseInt(inputs.resD);
+
+                if (userW === resW && userN === resN && userD === den) {
+                    // Logic: Is it already simplified?
+                    // Check 1: Is it improper? (e.g., 3 5/4)
+                    const isImproper = resN >= den;
+                    
+                    // Check 2: Is it reducible? (e.g., 3 4/8)
+                    const common = gcd(resN, den);
+                    const isReducible = common > 1;
+
+                    if (!isImproper && !isReducible) {
+                        // Already simplified! Skip step 4.
+                        finishProblem();
+                        setFeedback({ msg: "Correct! And it's already simplified! Well done!", type: "success" });
+                    } else {
+                        // Needs simplifying
+                        setFeedback({ msg: "Math correct! But it needs simplifying.", type: "success" });
+                        setStep(4);
+                    }
+                } else {
+                     setFeedback({ msg: "Check your addition/subtraction.", type: "error" });
+                }
+            };
+
+            // STEP 4: CHECK SIMPLIFY
+            const checkSimplify = () => {
+                // Calculate raw result again to verify
+                const den = parseInt(inputs.resD);
+                const num = parseInt(inputs.resN);
+                const whole = parseInt(inputs.resW || 0);
+
+                // Convert to improper to simplify purely
+                const totalNum = (whole * den) + num;
+                // Simplify
+                const simp = simplify(totalNum, den);
+                
+                // Convert back to mixed
+                const finalW = Math.floor(simp.n / simp.d);
+                const finalN = simp.n % simp.d;
+                const finalD = simp.d;
+
+                // User Input
+                const uW = parseInt(inputs.simpW || 0);
+                const uN = inputs.simpN === '' ? 0 : parseInt(inputs.simpN); // if remainder 0
+                const uD = parseInt(inputs.simpD || 1);
+
+                // Check logic: 
+                // Case 1: Result is whole number (finalN is 0)
+                if (finalN === 0) {
+                    if (uW === finalW && (inputs.simpN === '' || inputs.simpN == 0)) {
+                        finishProblem();
+                        return;
+                    }
+                }
+                // Case 2: Mixed Number
+                else {
+                    if (uW === finalW && uN === finalN && uD === finalD) {
+                        finishProblem();
+                        return;
+                    }
+                }
+                setFeedback({ msg: "Can you simplify further?", type: "error" });
+            };
+
+            const finishProblem = () => {
+                 setFeedback({ msg: "Outstanding! Plant growing!", type: "success" });
+                 const newScore = userProgress.score + 1;
+                 
+                 // Add a plant icon to array every 3 points?
+                 let newPlants = [...userProgress.plants];
+                 if (newScore % 3 === 0) newPlants.push("plant");
+
+                 const nextLevel = (newScore % TEACHER_CONFIG.questionsToLevelUp === 0) ? Math.min(4, userProgress.level + 1) : userProgress.level;
+
+                 setUserProgress({ ...userProgress, score: newScore, level: nextLevel, plants: newPlants });
+                 
+                 setTimeout(() => {
+                     // Stay on same level for practice, logic handled in startGame called by user or implicit
+                     // We actually want to clear the board and let them click or auto start?
+                     // Let's go back to menu to see progress grow, or just generate new problem:
+                     startGame(TEACHER_CONFIG.levels.find(l => l.id === userProgress.level) ? userProgress.level : 1);
+                     setView('game'); // Ensure we stay in game view
+                 }, 2000);
+            };
+
+            /* ---------------- VIEWS ---------------- */
+
+            const renderMenu = () => (
+                <div className="flex flex-col items-center justify-center min-h-screen p-4 space-y-6 max-w-4xl mx-auto">
+                    <header className="text-center mb-8 fade-in">
+                        <h1 className="text-5xl font-bold text-reggio-deepGreen mb-2 tracking-tight">The Fraction Farm</h1>
+                        <p className="text-xl text-reggio-clay">Cultivate your math skills</p>
+                        {isTeacherMode && <span className="bg-reggio-terracotta text-white text-xs px-2 py-1 rounded-full uppercase tracking-wide">Teacher Mode Active</span>}
+                    </header>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full fade-in">
+                        {TEACHER_CONFIG.levels.map((lvl) => {
+                            const isLocked = !isTeacherMode && lvl.id > userProgress.level;
+                            return (
+                                <button 
+                                    key={lvl.id}
+                                    onClick={() => startGame(lvl.id)}
+                                    className={`p-6 rounded-2xl shadow-lg border-b-4 transition-all duration-200 flex flex-col items-start
+                                        ${isLocked 
+                                            ? 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed' 
+                                            : 'bg-white border-reggio-sage hover:bg-green-50 hover:scale-[1.02]'}`}
+                                    disabled={isLocked}
+                                >
+                                    <div className="flex justify-between w-full mb-2">
+                                        <div className="flex items-center gap-2">
+                                            {isLocked && <Icon icon={Lock} size={18} />}
+                                            <span className="font-bold text-xl">{lvl.name}</span>
+                                        </div>
+                                        {(!isLocked && lvl.id <= userProgress.level) && <Icon icon={CheckCircle} className="text-reggio-sage" />}
+                                    </div>
+                                    <p className="text-sm text-left">{lvl.desc}</p>
+                                </button>
+                            )
+                        })}
+                    </div>
+
+                    <div className="bg-white p-6 rounded-2xl shadow w-full mt-8 border-l-8 border-reggio-terracotta fade-in">
+                        <h3 className="font-bold text-lg text-reggio-charcoal flex items-center gap-2">
+                            <Icon icon={Sprout} className="text-reggio-deepGreen" />
+                            My Garden (Score: {userProgress.score})
+                        </h3>
+                        <div className="flex flex-wrap gap-2 mt-4 min-h-[60px] p-2 bg-reggio-cream rounded-inner border border-reggio-stone">
+                            {userProgress.plants.length === 0 && <span className="text-gray-400 italic text-sm">Solve problems to grow plants...</span>}
+                            {userProgress.plants.map((_, i) => (
+                                <Icon key={i} icon={[Sprout, Leaf, TreeDeciduous][i % 3]} className="text-reggio-deepGreen animate-bounce" style={{animationDuration: `${2+Math.random()}s`}} />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex gap-4 mt-8">
+                        <button onClick={() => setView('about')} className="text-reggio-deepGreen underline hover:text-reggio-sage">Teacher / About</button>
+                        <button onClick={resetProgress} className="text-red-400 underline hover:text-red-600 text-sm">Reset Progress</button>
+                    </div>
+                </div>
+            );
+
+            const renderGame = () => {
+                if (!problem) return <div>Loading...</div>;
+                
+                return (
+                    <div className="flex flex-col min-h-screen bg-reggio-cream p-4 max-w-4xl mx-auto">
+                        {/* Header */}
+                        <div className="flex justify-between items-center mb-8">
+                            <button onClick={() => setView('menu')} className="bg-white px-4 py-2 rounded-xl shadow text-reggio-deepGreen font-bold hover:bg-gray-50">
+                                &larr; Farm
+                            </button>
+                            <div className="flex gap-2 text-reggio-sage">
+                                <Icon icon={Award} /> 
+                                <span className="font-bold">{userProgress.score}</span>
+                            </div>
+                        </div>
+
+                        {/* Main Problem Display */}
+                        <div className="bg-white rounded-3xl shadow-xl p-6 md:p-12 mb-6 border-b-8 border-reggio-sage relative min-h-[300px] flex flex-col items-center justify-center">
+                            
+                            {/* The Equation */}
+                            <div className="flex items-center gap-4 md:gap-8 mb-12 scale-110 md:scale-125">
+                                <Fraction w={problem.w1} n={problem.n1} d={problem.d1} size="xl" />
+                                <span className="text-6xl font-bold text-reggio-terracotta">{problem.op}</span>
+                                <Fraction w={problem.w2} n={problem.n2} d={problem.d2} size="xl" />
+                                <span className="text-6xl font-bold text-gray-300">=</span>
+                                <span className="text-6xl font-bold text-gray-300">?</span>
+                            </div>
+
+                            {/* Scaffolding Area - Dynamically changes based on 'step' */}
+                            <div className="w-full max-w-2xl bg-reggio-cream p-6 rounded-xl border border-reggio-stone transition-all duration-300">
+                                
+                                {/* Step 0: Find LCD */}
+                                {step === 0 && (
+                                    <div className="fade-in text-center">
+                                        <p className="text-lg mb-4 text-reggio-deepGreen font-bold">Step 1: The denominators are different.</p>
+                                        <label className="block mb-2">Find the Least Common Denominator (LCD):</label>
+                                        <div className="flex justify-center gap-2">
+                                            <input 
+                                                type="number" 
+                                                value={inputs.lcd} 
+                                                onChange={(e) => setInputs({...inputs, lcd: e.target.value})} 
+                                                className="w-20 p-2 text-center text-xl rounded border-2 border-reggio-sage" 
+                                                placeholder="?"
+                                            />
+                                            <button onClick={checkLCD} className="bg-reggio-deepGreen text-white px-6 py-2 rounded shadow hover:bg-green-800">Check</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Step 1: Rename Fractions */}
+                                {step === 1 && (
+                                    <div className="fade-in flex flex-col items-center">
+                                        <p className="text-lg mb-4 text-reggio-deepGreen font-bold">Step 2: Rename the fractions.</p>
+                                        <div className="flex items-center gap-8 mb-4">
+                                            {/* Fraction 1 */}
+                                            <div className="flex flex-col items-center">
+                                                <Fraction w={problem.w1} n={problem.n1} d={problem.d1} size="sm" color="text-gray-400" />
+                                                <span className="text-2xl text-reggio-sage">↓</span>
+                                                <div className="flex items-center text-2xl font-bold">
+                                                    {problem.w1 > 0 && <span className="mr-2">{problem.w1}</span>}
+                                                    <div className="flex flex-col items-center w-16">
+                                                        <input 
+                                                            className="w-full text-center border-b-2 border-black bg-white" 
+                                                            value={inputs.n1} 
+                                                            onChange={(e) => setInputs({...inputs, n1: e.target.value})} 
+                                                        />
+                                                        <span>{inputs.lcd}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <span className="text-2xl">{problem.op}</span>
+
+                                            {/* Fraction 2 */}
+                                            <div className="flex flex-col items-center">
+                                                <Fraction w={problem.w2} n={problem.n2} d={problem.d2} size="sm" color="text-gray-400" />
+                                                <span className="text-2xl text-reggio-sage">↓</span>
+                                                <div className="flex items-center text-2xl font-bold">
+                                                    {problem.w2 > 0 && <span className="mr-2">{problem.w2}</span>}
+                                                    <div className="flex flex-col items-center w-16">
+                                                        <input 
+                                                            className="w-full text-center border-b-2 border-black bg-white" 
+                                                            value={inputs.n2} 
+                                                            onChange={(e) => setInputs({...inputs, n2: e.target.value})} 
+                                                        />
+                                                        <span>{inputs.lcd}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button onClick={checkRename} className="bg-reggio-deepGreen text-white px-6 py-2 rounded shadow hover:bg-green-800">Check</button>
+                                    </div>
+                                )}
+
+                                {/* Step 2: Regroup */}
+                                {step === 2 && (
+                                    <div className="fade-in flex flex-col items-center">
+                                        <p className="text-lg mb-4 text-reggio-deepGreen font-bold">Step 3: You can't subtract {inputs.n2 || problem.n2} from {inputs.n1 || problem.n1}. Borrow from the whole number.</p>
+                                        <div className="flex items-center gap-4 bg-white p-4 rounded-lg shadow-inner">
+                                            <div className="opacity-50 line-through decoration-red-500 decoration-4">
+                                                <Fraction 
+                                                    w={problem.w1} 
+                                                    n={inputs.n1 || problem.n1} 
+                                                    d={inputs.lcd || problem.d1} 
+                                                />
+                                            </div>
+                                            <span className="text-2xl text-reggio-sage">→</span>
+                                            
+                                            {/* New Mixed Number Input */}
+                                            <div className="flex items-center text-3xl font-bold">
+                                                <input 
+                                                    type="number"
+                                                    className="w-16 p-1 text-center border-2 border-reggio-sage rounded mr-2" 
+                                                    value={inputs.rw1} 
+                                                    placeholder="W"
+                                                    onChange={(e) => setInputs({...inputs, rw1: e.target.value})} 
+                                                />
+                                                <div className="flex flex-col items-center w-20">
+                                                    <input 
+                                                        type="number"
+                                                        className="w-full text-center border-b-2 border-black bg-white" 
+                                                        value={inputs.rn1} 
+                                                        placeholder="N"
+                                                        onChange={(e) => setInputs({...inputs, rn1: e.target.value})} 
+                                                    />
+                                                    <span>{inputs.lcd || problem.d1}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button onClick={checkRegroup} className="mt-4 bg-reggio-deepGreen text-white px-6 py-2 rounded shadow hover:bg-green-800">Check Borrowing</button>
+                                    </div>
+                                )}
+
+                                {/* Step 3: Solve */}
+                                {step === 3 && (
+                                    <div className="fade-in flex flex-col items-center">
+                                        <p className="text-lg mb-4 text-reggio-deepGreen font-bold">Step {step === 3 && (TEACHER_CONFIG.levels.find(l=>l.id===4).regroup ? '4' : '2')}: {problem.op === '+' ? 'Add' : 'Subtract'} the fractions.</p>
+                                        <div className="flex items-center gap-4 text-2xl font-bold mb-4">
+                                            {/* Visual Reminder of what we are solving */}
+                                            <div className="text-gray-500">
+                                                 { (step > 1 && inputs.rw1 !== '') ? inputs.rw1 : problem.w1 }
+                                                 <span className="text-sm align-super mx-1">
+                                                    { (step > 1 && inputs.rn1) ? inputs.rn1 : (inputs.n1 || problem.n1) }
+                                                    /
+                                                    {inputs.lcd || problem.d1}
+                                                 </span>
+                                            </div>
+                                            <span>{problem.op}</span>
+                                            <div className="text-gray-500">
+                                                 { problem.w2 }
+                                                 <span className="text-sm align-super mx-1">
+                                                    {inputs.n2 || problem.n2}
+                                                    /
+                                                    {inputs.lcd || problem.d2}
+                                                 </span>
+                                            </div>
+                                            <span>=</span>
+                                        </div>
+
+                                        <div className="flex items-center text-3xl font-bold">
+                                            <input 
+                                                type="number"
+                                                className="w-16 p-1 text-center border-2 border-reggio-sage rounded mr-2" 
+                                                value={inputs.resW} 
+                                                placeholder="W"
+                                                onChange={(e) => setInputs({...inputs, resW: e.target.value})} 
+                                            />
+                                            <div className="flex flex-col items-center w-20">
+                                                <input 
+                                                    type="number"
+                                                    className="w-full text-center border-b-2 border-black bg-white" 
+                                                    value={inputs.resN} 
+                                                    placeholder="N"
+                                                    onChange={(e) => setInputs({...inputs, resN: e.target.value})} 
+                                                />
+                                                <input 
+                                                    type="number"
+                                                    className="w-full text-center bg-gray-100" 
+                                                    value={inputs.resD} 
+                                                    placeholder="D"
+                                                    onChange={(e) => setInputs({...inputs, resD: e.target.value})} 
+                                                />
+                                            </div>
+                                        </div>
+                                        <button onClick={checkSolve} className="mt-4 bg-reggio-deepGreen text-white px-6 py-2 rounded shadow hover:bg-green-800">Check Answer</button>
+                                    </div>
+                                )}
+
+                                {/* Step 4: Simplify */}
+                                {step === 4 && (
+                                    <div className="fade-in flex flex-col items-center">
+                                        <p className="text-lg mb-4 text-reggio-deepGreen font-bold">Final Step: Simplify the result.</p>
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <Fraction w={inputs.resW} n={inputs.resN} d={inputs.resD} size="lg" color="text-gray-400" />
+                                            <span className="text-3xl text-reggio-sage">→</span>
+                                            <div className="flex items-center text-3xl font-bold">
+                                                <input 
+                                                    type="number"
+                                                    className="w-16 p-1 text-center border-2 border-reggio-sage rounded mr-2" 
+                                                    value={inputs.simpW} 
+                                                    placeholder="W"
+                                                    onChange={(e) => setInputs({...inputs, simpW: e.target.value})} 
+                                                />
+                                                <div className="flex flex-col items-center w-20">
+                                                    <input 
+                                                        type="number"
+                                                        className="w-full text-center border-b-2 border-black bg-white" 
+                                                        value={inputs.simpN} 
+                                                        placeholder="N"
+                                                        onChange={(e) => setInputs({...inputs, simpN: e.target.value})} 
+                                                    />
+                                                    <input 
+                                                        type="number"
+                                                        className="w-full text-center border-t-0 bg-white" 
+                                                        value={inputs.simpD} 
+                                                        placeholder="D"
+                                                        onChange={(e) => setInputs({...inputs, simpD: e.target.value})} 
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p className="text-sm text-gray-500 mb-2">Hint: If the numerator is 0, just type the whole number.</p>
+                                        <button onClick={checkSimplify} className="bg-reggio-terracotta text-white px-6 py-2 rounded shadow hover:bg-orange-700">Finish</button>
+                                    </div>
+                                )}
+
+                            </div>
+
+                            {/* Feedback Message */}
+                            {feedback.msg && (
+                                <div className={`mt-6 px-4 py-2 rounded-lg font-bold text-center animate-bounce ${
+                                    feedback.type === 'error' ? 'bg-red-100 text-red-600' : 
+                                    feedback.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600'
+                                }`}>
+                                    {feedback.msg}
+                                </div>
+                            )}
+
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderAbout = () => (
+                <Modal title="Teacher Dashboard & About" onClose={() => setView('menu')}>
+                    <div className="space-y-4">
+                        <p><strong>Philosophy:</strong> This app uses the Reggio Emilia approach of "environment as the third teacher." The interface is calm and organic to reduce math anxiety.</p>
+                        
+                        <div className="bg-gray-100 p-4 rounded-lg">
+                            <div className="flex justify-between items-center mb-2">
+                                <h4 className="font-bold text-reggio-deepGreen">Teacher Controls</h4>
+                                <button 
+                                    onClick={toggleTeacherMode}
+                                    className={`text-xs px-3 py-1 rounded-full font-bold transition-colors ${isTeacherMode ? 'bg-reggio-deepGreen text-white' : 'bg-gray-200 text-gray-500'}`}
+                                >
+                                    {isTeacherMode ? 'TEACHER MODE ON' : 'TEACHER MODE OFF'}
+                                </button>
+                            </div>
+                            <p className="text-sm mb-3">
+                                {isTeacherMode 
+                                    ? "All levels are currently unlocked for testing." 
+                                    : "Toggle Teacher Mode to unlock all levels instantly."}
+                            </p>
+                            
+                            <hr className="my-3 border-gray-300"/>
+
+                            <h4 className="font-bold text-reggio-deepGreen mb-2">How to Edit Difficulty:</h4>
+                            <p className="text-sm mb-2">You can edit the <code>TEACHER_CONFIG</code> object at the very top of the HTML file (lines 60-80) to change:</p>
+                            <ul className="list-disc ml-5 text-sm space-y-1">
+                                <li>Number of questions to level up</li>
+                                <li>Range of denominators (currently max 10)</li>
+                                <li>Whether to include mixed numbers</li>
+                            </ul>
+                        </div>
+
+                        <div className="bg-gray-100 p-4 rounded-lg">
+                            <h4 className="font-bold text-reggio-deepGreen mb-2">Pedagogy:</h4>
+                            <ul className="list-disc ml-5 text-sm space-y-1">
+                                <li><strong>Scaffolding:</strong> Instead of asking for the final answer, the app breaks unlike fractions into: LCD -> Rename -> Regroup (if needed) -> Solve -> Simplify.</li>
+                                <li><strong>Visuals:</strong> Fractions are stacked vertically to reinforce numerator/denominator concepts.</li>
+                            </ul>
+                        </div>
+                        <div className="text-center pt-4 text-xs text-gray-400">
+                            v1.2 - Single File React App
+                        </div>
+                    </div>
+                </Modal>
+            );
+
+            return (
+                <div className="min-h-screen">
+                    {view === 'menu' && renderMenu()}
+                    {view === 'game' && renderGame()}
+                    {view === 'about' && renderAbout()}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+</html>
